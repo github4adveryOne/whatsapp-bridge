@@ -1,0 +1,70 @@
+{
+  "name": "WhatsApp - Outgoing Poll",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "26e44e86-fe88-46e0-b06a-63d8b290ce68",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-poll",
+      "name": "Webhook - Poll Endpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return pending WhatsApp messages and clear queue\nconst fs = require('fs');\nconst queueFile = '/tmp/whatsapp-queue.json';\n\nlet pendingMessages = [];\n\ntry {\n  if (fs.existsSync(queueFile)) {\n    const data = fs.readFileSync(queueFile, 'utf8');\n    const queue = JSON.parse(data);\n    \n    // Get all pending messages\n    pendingMessages = queue.filter(msg => msg.status === 'pending').map(msg => ({\n      to: msg.to,\n      body: msg.body,\n      id: msg.id\n    }));\n    \n    if (pendingMessages.length > 0) {\n      console.log(`[Poll] Returning ${pendingMessages.length} pending message(s)`);\n      \n      // Clear the queue after returning messages\n      fs.writeFileSync(queueFile, JSON.stringify([]));\n    }\n  }\n} catch (err) {\n  console.error('[Poll] Error reading queue:', err.message);\n  // Return empty on error\n}\n\n// Return format expected by bridge\nreturn {\n  json: {\n    messages: pendingMessages\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "fetch-queue",
+      "name": "Fetch Queued Messages"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [600, 300],
+      "id": "respond",
+      "name": "Respond"
+    }
+  ],
+  "connections": {
+    "Webhook - Poll Endpoint": {
+      "main": [
+        [
+          {
+            "node": "Fetch Queued Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Queued Messages": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

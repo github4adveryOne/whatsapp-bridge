@@ -1,0 +1,46 @@
+{
+  "name": "Pocketmoney - Receive WhatsApp (Improved)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "26e44e86-fe86-46e0-b06a-63d8b290ce53",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-receive",
+      "name": "Webhook - Receive Messages",
+      "webhookId": "26e44e86-fe86-46e0-b06a-63d8b290ce53"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the batched WhatsApp messages\nconst item = $input.item;\nconst body = item.json.body;\nconst binary = item.binary || {};\n\n// Extract metadata\nconst senderno = body.senderno;\nconst contactName = body.contactName || senderno;\nconst messageCount = parseInt(body.messageCount || '0');\nconst messages = JSON.parse(body.messages || '[]');\n\nconsole.log(`[WhatsApp] Received ${messageCount} messages from ${contactName} (${senderno})`);\n\n// Build a structured output\nconst output = {\n  sender: {\n    phone: senderno,\n    name: contactName,\n    chatName: body.chatName,\n    isGroup: body.isGroup === 'true'\n  },\n  messageCount: messageCount,\n  messages: [],\n  mediaFiles: []\n};\n\n// Process each message\nmessages.forEach((msg, idx) => {\n  const processedMsg = {\n    messageId: msg.messageId,\n    timestamp: msg.timestamp,\n    timestampDate: new Date(msg.timestamp * 1000).toISOString(),\n    type: msg.type,\n    body: msg.body\n  };\n\n  if (msg.type === 'media' && msg.mediaKey) {\n    processedMsg.media = {\n      key: msg.mediaKey,\n      mimeType: msg.mimeType,\n      mediaType: msg.mediaType,\n      hasFile: binary[msg.mediaKey] !== undefined\n    };\n    \n    // Track media files separately for easy access\n    if (binary[msg.mediaKey]) {\n      output.mediaFiles.push({\n        key: msg.mediaKey,\n        mimeType: msg.mimeType,\n        fileName: binary[msg.mediaKey].fileName,\n        caption: msg.body || null\n      });\n    }\n  }\n\n  output.messages.push(processedMsg);\n});\n\nconsole.log('[WhatsApp] Processed messages:', JSON.stringify(output.messages, null, 2));\n\nreturn { json: output };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "process-messages",
+      "name": "Process Messages"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rename media files (remove spaces, fix extensions)\nconst item = $input.item;\n\nif (item.binary) {\n  for (const key of Object.keys(item.binary)) {\n    const file = item.binary[key];\n    const originalName = file.fileName || 'file';\n    \n    // Replace spaces with underscores\n    let cleanName = originalName.replace(/\\s+/g, '_');\n    \n    // Ensure correct extension\n    const ext = file.fileExtension;\n    if (ext && !cleanName.endsWith('.' + ext)) {\n      // Remove any existing extension and add the correct one\n      cleanName = cleanName.replace(/\\.[^.]+$/, '') + '.' + ext;\n    }\n    \n    file.fileName = cleanName;\n  }\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "id": "clean-filenames",
+      "name": "Clean Filenames"
+    },
+    {
+      "parameters": {
+        "fromEmail": "pocketmoney@advery.one",
+        "toEmail": "alex.gesswein@live.com",
+        "subject": "=📱 WhatsApp von {{ $json.sender.name }} ({{ $json.messageCount }} Nachrichten)",
+        "emailType": "html",
+        "message": "=<h2>Neue WhatsApp-Nachrichten</h2>\n<p><strong>Von:</strong> {{ $json.sender.name }} ({{ $json.sender.phone }})</p>\n<p><strong>Anzahl:</strong> {{ $json.messageCount }} Nachricht(en)</p>\n<hr>\n{{ $json.messages.map(m => {\n  let html = '<div style=\"margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;\">';\n  html += '<small style=\"color: #666;\">' + m.timestampDate + '</small><br>';\n  if (m.type === 'text') {\n    html += '<p>' + m.body + '</p>';\n  } else if (m.type === 'media') {\n    html += '<p><strong>[' + m.media.mediaType.toUpperCase() + ']</strong></p>';\n    if (m.body) {\n      html += '<p><em>Bildunterschrift:</em> ' + m.body + '</p>';\n    }\n  }\n  html += '</div>';\n  return html;\n}).join('') }}",
+        "options": {\n          "attachments": "={{ Object.keys($binary).join(',') }}"\n        }\n      },\n      "type": "n8n-nodes-base.emailSend",\n      "typeVersion": 2.1,\n      "position": [800, 300],\n      "id": "send-email",\n      "name": "Send Email",\n      "onError": "continueErrorOutput"\n    },\n    {\n      "parameters": {\n        "respondWith": "json",\n        "responseBody": "={{ { success: true, messagesReceived: $json.messageCount, sender: $json.sender.phone } }}",\n        "options": {\n          "responseCode": 200\n        }\n      },\n      "type": "n8n-nodes-base.respondToWebhook",\n      "typeVersion": 1.5,\n      "position": [1000, 300],\n      "id": "respond",\n      "name": "Respond to Webhook"\n    }\n  ],\n  "connections": {\n    "Webhook - Receive Messages": {\n      "main": [\n        [\n          {\n            "node": "Process Messages",\n            "type": "main",\n            "index": 0\n          }\n        ]\n      ]\n    },\n    "Process Messages": {\n      "main": [\n        [\n          {\n            "node": "Clean Filenames",\n            "type": "main",\n            "index": 0\n          }\n        ]\n      ]\n    },\n    "Clean Filenames": {\n      "main": [\n        [\n          {\n            "node": "Send Email",\n            "type": "main",\n            "index": 0\n          }\n        ]\n      ]\n    },\n    "Send Email": {\n      "main": [\n        [\n          {\n            "node": "Respond to Webhook",\n            "type": "main",\n            "index": 0\n          }\n        ]\n      ]\n    }\n  },\n  "active": false,\n  "settings": {\n    "executionOrder": "v1"\n  }\n}

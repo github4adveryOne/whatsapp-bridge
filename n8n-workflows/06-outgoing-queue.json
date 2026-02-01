@@ -1,0 +1,70 @@
+{
+  "name": "WhatsApp - Queue Outgoing Message",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-queue",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-queue",
+      "name": "Webhook - Queue Message"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Queue a WhatsApp message to be sent\nconst item = $input.item;\nconst body = item.json.body;\n\n// Expected input:\n// { \"to\": \"+491234567890\", \"body\": \"Message text\" }\n\nconst to = body.to;\nconst messageBody = body.body || body.message || body.text;\n\nif (!to || !messageBody) {\n  throw new Error('Missing required fields: to, body');\n}\n\n// Format phone number (remove + and spaces, ensure @c.us suffix)\nlet formattedTo = to.replace(/[+\\s]/g, '');\nif (!formattedTo.includes('@c.us')) {\n  formattedTo = formattedTo + '@c.us';\n}\n\nconst queuedMessage = {\n  id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),\n  to: formattedTo,\n  body: messageBody,\n  queuedAt: new Date().toISOString(),\n  status: 'pending'\n};\n\nconsole.log('[Queue] Added message:', queuedMessage.id, 'to', to);\n\n// Write to file (simple queue)\nconst fs = require('fs');\nconst queueFile = '/tmp/whatsapp-queue.json';\n\nlet queue = [];\ntry {\n  if (fs.existsSync(queueFile)) {\n    const data = fs.readFileSync(queueFile, 'utf8');\n    queue = JSON.parse(data);\n  }\n} catch (err) {\n  console.error('Failed to read queue file:', err.message);\n  queue = [];\n}\n\nqueue.push(queuedMessage);\n\ntry {\n  fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2));\n} catch (err) {\n  console.error('Failed to write queue file:', err.message);\n  throw new Error('Failed to queue message');\n}\n\nreturn {\n  json: {\n    success: true,\n    messageId: queuedMessage.id,\n    queuedAt: queuedMessage.queuedAt,\n    queueLength: queue.length\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "queue-message",
+      "name": "Queue Message"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [600, 300],
+      "id": "respond",
+      "name": "Respond"
+    }
+  ],
+  "connections": {
+    "Webhook - Queue Message": {
+      "main": [
+        [
+          {
+            "node": "Queue Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue Message": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

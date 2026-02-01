@@ -1,0 +1,157 @@
+{
+  "name": "WhatsApp - Outgoing Poll (File-based)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "26e44e86-fe88-46e0-b06a-63d8b290ce68",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-poll",
+      "name": "Webhook - Poll"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "filePath": "/tmp/whatsapp-queue.json",
+        "options": {
+          "encoding": "utf8"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [400, 300],
+      "id": "read-queue",
+      "name": "Read Queue File",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse queue and prepare response\nlet pendingMessages = [];\n\nconst fileInput = $input.first();\n\nif (fileInput && fileInput.json && fileInput.json.data) {\n  try {\n    const queue = JSON.parse(fileInput.json.data);\n    \n    if (Array.isArray(queue)) {\n      // Filter pending messages and format for bridge\n      pendingMessages = queue\n        .filter(msg => msg.status === 'pending')\n        .map(msg => ({\n          to: msg.to,\n          body: msg.body,\n          id: msg.id\n        }));\n      \n      if (pendingMessages.length > 0) {\n        console.log(`[Poll] Returning ${pendingMessages.length} message(s)`);\n      }\n    }\n  } catch (err) {\n    console.error('[Poll] Failed to parse queue:', err.message);\n  }\n}\n\n// Return empty queue data to clear file\nreturn {\n  json: {\n    messages: pendingMessages,\n    shouldClear: pendingMessages.length > 0,\n    clearedData: JSON.stringify([])\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "id": "parse-return",
+      "name": "Parse & Return Messages"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldClear }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300],
+      "id": "check-clear",
+      "name": "Should Clear?"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/tmp/whatsapp-queue.json",
+        "data": "={{ $json.clearedData }}",
+        "options": {
+          "encoding": "utf8"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1000, 200],
+      "id": "clear-queue",
+      "name": "Clear Queue File"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { messages: $json.messages } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1200, 300],
+      "id": "respond",
+      "name": "Respond"
+    }
+  ],
+  "connections": {
+    "Webhook - Poll": {
+      "main": [
+        [
+          {
+            "node": "Read Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Queue File": {
+      "main": [
+        [
+          {
+            "node": "Parse & Return Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Return Messages": {
+      "main": [
+        [
+          {
+            "node": "Should Clear?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Clear?": {
+      "main": [
+        [
+          {
+            "node": "Clear Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Queue File": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

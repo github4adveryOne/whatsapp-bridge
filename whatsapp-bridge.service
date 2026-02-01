@@ -1,0 +1,25 @@
+[Unit]
+Description=WhatsApp Bridge for n8n
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+WorkingDirectory=/home/openclaw/whatsapp-bridge
+ExecStart=/usr/bin/node /home/openclaw/whatsapp-bridge/index.js
+Restart=always
+RestartSec=10
+
+# Log to file
+StandardOutput=append:/home/openclaw/whatsapp-bridge/bridge.log
+StandardError=append:/home/openclaw/whatsapp-bridge/bridge.log
+
+# Restart on any failure (unlimited attempts)
+StartLimitIntervalSec=0
+
+# Environment
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

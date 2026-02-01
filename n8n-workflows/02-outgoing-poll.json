@@ -1,0 +1,61 @@
+{
+  "name": "WhatsApp Outgoing Messages (Poll)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-outgoing-poll",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Poll Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "whatsapp-outgoing-poll"
+    },
+    {
+      "parameters": {
+        "jsCode": "// This is a simple example that returns pending messages\n// In production, you'd fetch from a database or queue\n\n// Example: Check a global variable or database for pending messages\nconst pendingMessages = [\n  // Uncomment to test:\n  // {\n  //   to: \"491234567890\",  // Your WhatsApp number\n  //   body: \"Test message from n8n\",\n  //   id: \"msg-\" + Date.now()\n  // }\n];\n\n// Return in the format the bridge expects\nreturn {\n  json: {\n    messages: pendingMessages\n  }\n};"
+      },
+      "name": "Get Pending Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [475, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "name": "Respond with Messages",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Poll Endpoint": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Messages": {
+      "main": [
+        [
+          {
+            "node": "Respond with Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

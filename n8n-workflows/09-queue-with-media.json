@@ -1,0 +1,138 @@
+{
+  "name": "Pocketmoney - WhatsApp - Send-Messages (with Media)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "b61fe911-e9fc-4a96-a55d-8ae2f81023be",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "id": "webhook",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and format message with media support\nconst item = $input.item;\nconst body = item.json.body;\n\nconst to = body.to;\nconst messageBody = body.body || body.message || body.text;\n\nif (!to) {\n  throw new Error('Missing required field: to');\n}\n\nif (!messageBody && !body.media) {\n  throw new Error('Missing message body or media');\n}\n\n// Format phone number (remove + and spaces, ensure @c.us suffix)\nlet formattedTo = to.replace(/[+\\s]/g, '');\nif (!formattedTo.includes('@c.us')) {\n  formattedTo = formattedTo + '@c.us';\n}\n\nconst queuedMessage = {\n  id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),\n  to: formattedTo,\n  body: messageBody || '',\n  queuedAt: new Date().toISOString(),\n  status: 'pending'\n};\n\n// Add media if present\nif (body.media && body.media.data && body.media.mimetype) {\n  queuedMessage.media = {\n    data: body.media.data,\n    mimetype: body.media.mimetype,\n    filename: body.media.filename || 'file'\n  };\n  console.log('[Queue] Queuing media message:', queuedMessage.id, 'type:', body.media.mimetype);\n} else {\n  console.log('[Queue] Queuing text message:', queuedMessage.id);\n}\n\nreturn {\n  json: queuedMessage\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "id": "validate",
+      "name": "Validate & Format"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/tmp/whatsapp-queue.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [400, 0],
+      "id": "read-queue",
+      "name": "Read Queue File",
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add new message to existing queue\nconst newMessage = $('Validate & Format').first().json;\nlet queue = [];\n\n// Try to parse existing queue from file\nconst fileInput = $('Read Queue File').first();\nif (fileInput && fileInput.json && fileInput.binary && fileInput.binary.data && fileInput.binary.data.data) {\n  try {\n    const fileContent = fileInput.binary.data.data;\n    let bufferObj = Buffer.from(fileContent, 'base64');\n    queue = JSON.parse(bufferObj.toString('utf8'));\n    if (!Array.isArray(queue)) {\n      queue = [];\n    }\n  } catch (err) {\n    console.log('[Queue] Starting fresh queue');\n    queue = [];\n  }\n} else {\n  console.log('[Queue] No existing queue file, creating new');\n}\n\n// Add new message\nqueue.push(newMessage);\n\nconsole.log(`[Queue] Added message ${newMessage.id}, queue length: ${queue.length}`);\n\n// Convert the queue to a JSON string\nconst queueString = JSON.stringify(queue, null, 2);\n\nreturn {\n  json: {\n    success: true,\n    messageId: newMessage.id,\n    queuedAt: newMessage.queuedAt,\n    queueLength: queue.length,\n    hasMedia: !!newMessage.media\n  },\n  binary: {\n    data: {\n      data: Buffer.from(queueString).toString('base64'),\n      mimeType: 'application/json',\n      fileName: 'whatsapp-queue.json'\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 0],
+      "id": "merge-queue",
+      "name": "Merge Queue"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/tmp/whatsapp-queue.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [800, 0],
+      "id": "write-queue",
+      "name": "Write Queue File"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: $json.success, messageId: $json.messageId, queuedAt: $json.queuedAt, queueLength: $json.queueLength, hasMedia: $json.hasMedia } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1000, 0],
+      "id": "respond",
+      "name": "Respond"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Format": {
+      "main": [
+        [
+          {
+            "node": "Read Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Queue File": {
+      "main": [
+        [
+          {
+            "node": "Merge Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Queue": {
+      "main": [
+        [
+          {
+            "node": "Write Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Queue File": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

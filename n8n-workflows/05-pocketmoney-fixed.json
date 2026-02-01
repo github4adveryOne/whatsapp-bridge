@@ -1,0 +1,121 @@
+{
+  "name": "Pocketmoney - WhatsApp (Fixed)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "26e44e86-fe86-46e0-b06a-63d8b290ce53",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-receive",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse WhatsApp batch with clear file-message mapping\nconst item = $input.item;\nconst body = item.json.body;\nconst binary = item.binary || {};\n\nconst senderno = body.senderno;\nconst contactName = body.contactName || senderno;\nconst messageCount = parseInt(body.messageCount || '0');\nconst messages = JSON.parse(body.messages || '[]');\n\nconsole.log(`[WhatsApp] ${messageCount} messages from ${contactName}`);\n\n// Build email body as HTML\nlet emailBody = `<h2>📱 WhatsApp von ${contactName}</h2>`;\nemailBody += `<p><strong>Telefon:</strong> ${senderno}<br>`;\nemailBody += `<strong>Zeit:</strong> ${new Date().toLocaleString('de-DE')}<br>`;\nemailBody += `<strong>Nachrichten:</strong> ${messageCount}</p><hr>`;\n\nmessages.forEach((msg, idx) => {\n  emailBody += `<div style=\"margin: 15px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;\">`;\n  emailBody += `<small style=\"color: #666;\">${msg.timestampDate}</small><br>`;\n  \n  if (msg.type === 'text') {\n    emailBody += `<p>${msg.body}</p>`;\n  } else if (msg.type === 'media') {\n    emailBody += `<p><strong>📎 ${msg.mediaType.toUpperCase()}</strong>: ${msg.mediaFileName || 'media'}</p>`;\n    if (msg.body) {\n      emailBody += `<p><em>Bildunterschrift:</em> ${msg.body}</p>`;\n    }\n    emailBody += `<p><small>Datei: ${msg.fileKey} (siehe Anhang)</small></p>`;\n  }\n  \n  emailBody += `</div>`;\n});\n\nreturn {\n  json: {\n    sender: {\n      phone: senderno,\n      name: contactName\n    },\n    messageCount: messageCount,\n    emailSubject: `📱 WhatsApp von ${contactName} (${messageCount} Nachrichten)`,\n    emailBody: emailBody,\n    messages: messages\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "process-messages",
+      "name": "Process Messages"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Clean filenames for email attachments\nconst item = $input.item;\n\nif (item.binary) {\n  for (const key of Object.keys(item.binary)) {\n    const file = item.binary[key];\n    let cleanName = (file.fileName || 'file').replace(/\\s+/g, '_');\n    \n    // Ensure correct extension\n    const ext = file.fileExtension;\n    if (ext && !cleanName.endsWith('.' + ext)) {\n      cleanName = cleanName.replace(/\\.[^.]+$/, '') + '.' + ext;\n    }\n    \n    file.fileName = cleanName;\n  }\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "id": "clean-files",
+      "name": "Clean Filenames"
+    },
+    {
+      "parameters": {
+        "fromEmail": "pocketmoney@advery.one",
+        "toEmail": "alex.gesswein@live.com",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $json.emailBody }}",
+        "options": {
+          "attachments": "={{ Object.keys($binary).join(',') }}"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [800, 300],
+      "id": "send-email",
+      "name": "Send Email",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, messagesReceived: $json.messageCount, sender: $json.sender.phone } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1000, 300],
+      "id": "respond",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Messages": {
+      "main": [
+        [
+          {
+            "node": "Clean Filenames",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Filenames": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

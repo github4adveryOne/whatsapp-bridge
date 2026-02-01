@@ -1,0 +1,143 @@
+{
+  "name": "WhatsApp - Queue Outgoing (File-based)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-queue",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 300],
+      "id": "webhook-queue",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and format message\nconst item = $input.item;\nconst body = item.json.body;\n\nconst to = body.to;\nconst messageBody = body.body || body.message || body.text;\n\nif (!to || !messageBody) {\n  throw new Error('Missing required fields: to, body');\n}\n\n// Format phone number (remove + and spaces, ensure @c.us suffix)\nlet formattedTo = to.replace(/[+\\s]/g, '');\nif (!formattedTo.includes('@c.us')) {\n  formattedTo = formattedTo + '@c.us';\n}\n\nconst queuedMessage = {\n  id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),\n  to: formattedTo,\n  body: messageBody,\n  queuedAt: new Date().toISOString(),\n  status: 'pending'\n};\n\nconsole.log('[Queue] Queuing message:', queuedMessage.id);\n\nreturn {\n  json: queuedMessage\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "validate-format",
+      "name": "Validate & Format"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "filePath": "/tmp/whatsapp-queue.json",
+        "options": {
+          "encoding": "utf8"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [600, 300],
+      "id": "read-queue",
+      "name": "Read Queue File",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add new message to existing queue\nconst newMessage = $input.first().json;\nlet queue = [];\n\n// Try to parse existing queue from file\nconst fileInput = $input.all()[1];\nif (fileInput && fileInput.json && fileInput.json.data) {\n  try {\n    const fileContent = fileInput.json.data;\n    queue = JSON.parse(fileContent);\n    if (!Array.isArray(queue)) {\n      queue = [];\n    }\n  } catch (err) {\n    console.log('[Queue] Starting fresh queue');\n    queue = [];\n  }\n} else {\n  console.log('[Queue] No existing queue file, creating new');\n}\n\n// Add new message\nqueue.push(newMessage);\n\nconsole.log(`[Queue] Added message ${newMessage.id}, queue length: ${queue.length}`);\n\nreturn {\n  json: {\n    success: true,\n    messageId: newMessage.id,\n    queuedAt: newMessage.queuedAt,\n    queueLength: queue.length,\n    queueData: JSON.stringify(queue, null, 2)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300],
+      "id": "merge-queue",
+      "name": "Merge Queue"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/tmp/whatsapp-queue.json",
+        "data": "={{ $json.queueData }}",
+        "options": {
+          "encoding": "utf8"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1000, 300],
+      "id": "write-queue",
+      "name": "Write Queue File"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: $json.success, messageId: $json.messageId, queuedAt: $json.queuedAt, queueLength: $json.queueLength } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1200, 300],
+      "id": "respond",
+      "name": "Respond"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Format": {
+      "main": [
+        [
+          {
+            "node": "Read Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Queue File": {
+      "main": [
+        [
+          {
+            "node": "Merge Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Queue": {
+      "main": [
+        [
+          {
+            "node": "Write Queue File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Queue File": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

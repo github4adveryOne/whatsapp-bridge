@@ -1,0 +1,61 @@
+{
+  "name": "WhatsApp Incoming Messages",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-incoming",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Receive WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "whatsapp-incoming"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"received\": \"{{ $now }}\" }"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process incoming WhatsApp message\nconst data = $input.item.json;\n\nconsole.log('[WhatsApp] Received from:', data.contactName);\nconsole.log('[WhatsApp] Message:', data.body);\n\n// You can add your processing logic here:\n// - Save to database\n// - Forward to another system\n// - Trigger AI response\n// - etc.\n\nreturn {\n  json: {\n    processed: true,\n    from: data.from,\n    message: data.body,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "name": "Process Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [475, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Process Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Message": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
