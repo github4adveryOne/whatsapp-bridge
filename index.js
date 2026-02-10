@@ -217,80 +217,96 @@ async function sendBatchToN8n(sender, batch) {
 }
 
 // Outgoing message poller
-let pollerInterval = null;
+let pollerTimeout = null;
+let isPolling = false;
 
 function startOutgoingPoller() {
   console.log(`🔄 Starting outgoing message poller (${config.n8n.pollInterval}ms interval)`);
+  scheduleNextPoll();
+}
+
+async function pollOutgoingMessages() {
+  if (isPolling) {
+    console.warn('⚠️ Previous poll still running, skipping this cycle');
+    return;
+  }
+
+  isPolling = true;
   
-  pollerInterval = setInterval(async () => {
-    try {
-      const response = await axios.get(config.n8n.outgoingPollUrl);
-      const messages = response.data.messages || [];
+  try {
+    const response = await axios.get(config.n8n.outgoingPollUrl);
+    const messages = response.data.messages || [];
 
-      if (messages.length > 0) {
-        console.log(`📤 ${messages.length} outgoing message(s) to send`);
-      }
+    if (messages.length > 0) {
+      console.log(`📤 ${messages.length} outgoing message(s) to send`);
+    }
 
-      for (const msg of messages) {
-        try {
-          // Format WhatsApp number (ensure it has @c.us suffix)
-          const chatId = msg.to.includes('@c.us') ? msg.to : `${msg.to}@c.us`;
+    for (const msg of messages) {
+      try {
+        // Format WhatsApp number (ensure it has @c.us suffix)
+        const chatId = msg.to.includes('@c.us') ? msg.to : `${msg.to}@c.us`;
+        
+        // Check if message has media
+        if (msg.media) {
+          // Send media message
+          // msg.media should contain: { data: <base64>, mimetype: <mime>, filename: <name> }
+          const media = new MessageMedia(
+            msg.media.mimetype,
+            msg.media.data,
+            msg.media.filename
+          );
           
-          // Check if message has media
-          if (msg.media) {
-            // Send media message
-            // msg.media should contain: { data: <base64>, mimetype: <mime>, filename: <name> }
-            const media = new MessageMedia(
-              msg.media.mimetype,
-              msg.media.data,
-              msg.media.filename
-            );
-            
-            const options = {};
-            if (msg.body) {
-              options.caption = msg.body;
-            }
-            
-            await client.sendMessage(chatId, media, options);
-            console.log(`✅ Sent media to ${msg.to}: ${msg.media.filename || 'file'}`);
-          } else {
-            // Send text message
-            await client.sendMessage(chatId, msg.body);
-            console.log(`✅ Sent to ${msg.to}: ${msg.body.substring(0, 50)}`);
+          const options = {};
+          if (msg.body) {
+            options.caption = msg.body;
           }
-
-          // Acknowledge delivery to n8n (if msg has an ID)
-          if (msg.id && config.n8n.ackUrl) {
-            await axios.post(config.n8n.ackUrl, { id: msg.id });
-          }
-        } catch (sendError) {
-          console.error(`❌ Failed to send message to ${msg.to}:`, sendError.message);
+          
+          await client.sendMessage(chatId, media, options);
+          console.log(`✅ Sent media to ${msg.to}: ${msg.media.filename || 'file'}`);
+        } else {
+          // Send text message
+          await client.sendMessage(chatId, msg.body);
+          console.log(`✅ Sent to ${msg.to}: ${msg.body.substring(0, 50)}`);
         }
-      }
-    } catch (error) {
-      // Don't log errors if n8n endpoint doesn't exist yet (404/502)
-      if (error.response && [404, 502].includes(error.response.status)) {
-        // Silent - endpoint not ready yet
-      } else if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
-        // Network issues - silent
-      } else {
-        console.error('❌ Polling error:', error.message);
+
+        // Acknowledge delivery to n8n (if msg has an ID)
+        if (msg.id && config.n8n.ackUrl) {
+          await axios.post(config.n8n.ackUrl, { id: msg.id });
+        }
+      } catch (sendError) {
+        console.error(`❌ Failed to send message to ${msg.to}:`, sendError.message);
       }
     }
-  }, config.n8n.pollInterval);
+  } catch (error) {
+    // Don't log errors if n8n endpoint doesn't exist yet (404/502)
+    if (error.response && [404, 502].includes(error.response.status)) {
+      // Silent - endpoint not ready yet
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      // Network issues - silent
+    } else {
+      console.error('❌ Polling error:', error.message);
+    }
+  } finally {
+    isPolling = false;
+    scheduleNextPoll();
+  }
+}
+
+function scheduleNextPoll() {
+  pollerTimeout = setTimeout(pollOutgoingMessages, config.n8n.pollInterval);
 }
 
 // Cleanup on exit
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down...');
-  if (pollerInterval) clearInterval(pollerInterval);
+  if (pollerTimeout) clearTimeout(pollerTimeout);
   client.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n👋 SIGTERM received, shutting down...');
-  if (pollerInterval) clearInterval(pollerInterval);
+  if (pollerTimeout) clearTimeout(pollerTimeout);
   client.destroy();
   process.exit(0);
 });
